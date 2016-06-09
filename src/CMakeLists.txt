@@ -20,6 +20,5 @@ SET_TARGET_PROPERTIES( lbm_reference PROPERTIES COMPILE_FLAGS "-DLBM_ONLY" )
 TARGET_LINK_LIBRARIES( lbm_reference confparser )
 ADD_EXECUTABLE( firesim main_particle_system.cpp
                         particles/ParticleSystem.cpp
-                        particles/Particle.cpp
                         particles/Emitter.cpp )
-TARGET_LINK_LIBRARIES( firesim confparser Irrlicht GL Xxf86vm Xext X11 )
+TARGET_LINK_LIBRARIES( firesim confparser Irrlicht GL Xxf86vm Xext X11 GLEW SDL2 GLU)

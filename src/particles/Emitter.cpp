@@ -6,8 +6,8 @@
 
 namespace particles {
 
-Emitter::Emitter ( core::vector3df pos,
-                   core::vector3df size,
+Emitter::Emitter ( vec3 pos,
+                   vec3 size,
                    float temp,
                    int fuel,
                    int emitThreshold,

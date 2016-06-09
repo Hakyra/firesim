@@ -365,8 +365,6 @@ protected:
 
   //! \note Output is in binary VTK legacy file format
 
-  void writeVtkFile();
-
   void writePerformanceSummary();
 
   std::string calcMLUP( T time, int cells );
@@ -479,21 +477,6 @@ protected:
 
 };
 
-//! Specialization of the the VTK file writer for template type double
-//! \note This is necessary as the type needs to be written to the VTK file in
-//!       ASCII and there is no way to get an ASCII representation of the \e
-//!       type of a template paramter
-
-template<>
-void LBM<double>::writeVtkFile();
-
-//! Specialization of the the VTK file writer for template type float
-//! \note This is necessary as the type needs to be written to the VTK file in
-//!       ASCII and there is no way to get an ASCII representation of the \e
-//!       type of a template paramter
-
-template<>
-void LBM<float>::writeVtkFile();
 
 } // namespace lbm
 

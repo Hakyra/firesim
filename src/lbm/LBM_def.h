@@ -7,20 +7,9 @@
 #ifndef LBM_DEF_H_
 #define LBM_DEF_H_
 
-#ifndef htobe32
-
-  #if __BYTE_ORDER == __LITTLE_ENDIAN
-    #include <byteswap.h>
-    #define htobe32(x) bswap_32(x)
-    #define htobe64(x) bswap_64(x)
-  #else
-    #define htobe32(x) (x)
-    #define htobe64(x) (x)
-  #endif
-
-#endif
 
 #include <iomanip>
+#include <glm/glm.hpp>
 
 namespace lbm {
 
@@ -215,8 +204,6 @@ double LBM<T>::runStep() {
   stepTime = getTime(start, end);
 #endif
 
-  if ( vtkStep_ != 0 && curStep_ % vtkStep_ == 0 )
-    writeVtkFile();
 
   ++curStep_;
   return stepTime;
@@ -538,7 +525,7 @@ void LBM<T>::setup( ConfBlock& base ) {
                     T b = exn[f] * xd + eyn[f] * yd + ezn[f] * zd;
                     T c = xd * xd + yd * yd + zd * zd - r2;
                     assert( b*b >= c );
-                    delta[f] = 1.0 - ( b + sqrt( b * b - c ) ) / le[f];
+                    delta[f] = 1.0 - ( b + glm::sqrt( b * b - c ) ) / le[f];
                   }
                 }
                 if ( isBoundary ) {
@@ -999,10 +986,10 @@ inline void LBM<T>::collideStreamSmagorinsky( int x, int y, int z ) {
     }
     qo += qadd * qadd;
   }
-  qo = sqrt( qo );
+  qo = glm::sqrt( qo );
 
   // Calculate local stress tensor
-  T s = ( sqrt( nu_ * nu_ + 18. * cSmagoSqr_ * qo ) - nu_ ) / ( 6. * cSmagoSqr_);
+  T s = ( glm::sqrt( nu_ * nu_ + 18. * cSmagoSqr_ * qo ) - nu_ ) / ( 6. * cSmagoSqr_);
   // Calculate turbulence modified inverse lattice viscosity
   T omega = 1. / ( 3. * ( nu_ + cSmagoSqr_ * s ) + .5 );
   T omegai = 1. - omega;
@@ -1265,7 +1252,7 @@ inline void LBM<T>::moveSphere() {
               T b = exn[f] * xd + eyn[f] * yd + ezn[f] * zd;
               T c = xd * xd + yd * yd + zd * zd - r2;
               assert( b*b >= c );
-              T deltai = ( b + sqrt( b * b - c ) ) / le[f];
+              T deltai = ( b + glm::sqrt( b * b - c ) ) / le[f];
               T delta = 1.0 - deltai;
               T rho = 6 * rho_(x, y, z);
 //              T rho = 6 * delta * (
@@ -1363,141 +1350,6 @@ std::string LBM<T>::calcMLUP( T time, int cells ) {
   return o.str();
 }
 
-template<>
-void LBM<double>::writeVtkFile() {
-
-  // Open file for writing
-  std::ostringstream oss;
-  oss << vtkFileName_ << "." << curStep_ << ".vtk";
-  std::cout << "Writing file '" << oss.str() << "' for time step " << curStep_ << std::endl;
-  std::ofstream vtkFile( oss.str().c_str(), std::ios::binary | std::ios::out );
-
-  // Get size of domain without ghost layers
-  int sizeX = grid0_->getSizeX() - 2;
-  int sizeY = grid0_->getSizeY() - 2;
-  int sizeZ = grid0_->getSizeZ() - 2;
-
-  // Write file header
-  vtkFile << "# vtk DataFile Version 2.0\n";
-  vtkFile << "VTK output file for time step " << curStep_ << "\n\n";
-  vtkFile << "BINARY\n\n";
-  vtkFile << "DATASET STRUCTURED_POINTS\n";
-  vtkFile << "DIMENSIONS " << sizeX << " " << sizeY << " " << sizeZ << "\n";
-  vtkFile << "ORIGIN 0.0 0.0 0.0\n";
-  vtkFile << "SPACING 1.0 1.0 1.0\n\n";
-  vtkFile << "POINT_DATA " << sizeX * sizeY * sizeZ << "\n\n";
-
-  // Write flag field
-  vtkFile << "SCALARS flags int\n";
-  vtkFile << "LOOKUP_TABLE default\n";
-  for ( int z = 1; z <= sizeZ; ++z ) {
-    for ( int y = 1; y <= sizeY; ++y ) {
-      for ( int x = 1; x <= sizeX; ++x ) {
-        // evil hack because vtk requires binary data to be in big endian
-        uint32_t dump = htobe32( *reinterpret_cast<uint32_t *>( &flag_( x, y, z ) ) );
-        vtkFile.write( reinterpret_cast<char *>( &dump ), sizeof(int) );
-      }
-    }
-  }
-
-  // Write density field
-  vtkFile << "SCALARS density double\n";
-  vtkFile << "LOOKUP_TABLE default\n";
-  for ( int z = 1; z <= sizeZ; ++z ) {
-    for ( int y = 1; y <= sizeY; ++y ) {
-      for ( int x = 1; x <= sizeX; ++x ) {
-        // evil hack because vtk requires binary data to be in big endian
-        uint64_t dump = htobe64( *reinterpret_cast<uint64_t *>( &rho_( x, y, z ) ) );
-        vtkFile.write( reinterpret_cast<char *>( &dump ), sizeof(double) );
-      }
-    }
-  }
-
-  // Write velocity vector field
-  vtkFile << "VECTORS velocity double\n";
-  for ( int z = 1; z <= sizeZ; ++z ) {
-    for ( int y = 1; y <= sizeY; ++y ) {
-      for ( int x = 1; x <= sizeX; ++x ) {
-        // evil hack because vtk requires binary data to be in big endian
-        uint64_t dump0 = htobe64( *reinterpret_cast<uint64_t *>( &u_( x, y, z, 0 ) ) );
-        uint64_t dump1 = htobe64( *reinterpret_cast<uint64_t *>( &u_( x, y, z, 1 ) ) );
-        uint64_t dump2 = htobe64( *reinterpret_cast<uint64_t *>( &u_( x, y, z, 2 ) ) );
-        vtkFile.write( reinterpret_cast<char *>( &dump0 ), sizeof(double) );
-        vtkFile.write( reinterpret_cast<char *>( &dump1 ), sizeof(double) );
-        vtkFile.write( reinterpret_cast<char *>( &dump2 ), sizeof(double) );
-      }
-    }
-  }
-
-}
-
-template<>
-void LBM<float>::writeVtkFile() {
-
-  // Open file for writing
-  std::ostringstream oss;
-  oss << vtkFileName_ << "." << curStep_ << ".vtk";
-  std::cout << "Writing file '" << oss.str() << "' for time step " << curStep_ << std::endl;
-  std::ofstream vtkFile( oss.str().c_str(), std::ios::binary | std::ios::out );
-
-  // Get size of domain without ghost layers
-  int sizeX = grid0_->getSizeX() - 2;
-  int sizeY = grid0_->getSizeY() - 2;
-  int sizeZ = grid0_->getSizeZ() - 2;
-
-  // Write file header
-  vtkFile << "# vtk DataFile Version 2.0\n";
-  vtkFile << "VTK output file for time step " << curStep_ << "\n\n";
-  vtkFile << "BINARY\n\n";
-  vtkFile << "DATASET STRUCTURED_POINTS\n";
-  vtkFile << "DIMENSIONS " << sizeX << " " << sizeY << " " << sizeZ << "\n";
-  vtkFile << "ORIGIN 0.0 0.0 0.0\n";
-  vtkFile << "SPACING 1.0 1.0 1.0\n\n";
-  vtkFile << "POINT_DATA " << sizeX * sizeY * sizeZ << "\n\n";
-
-  // Write flag field
-  vtkFile << "SCALARS flags int\n";
-  vtkFile << "LOOKUP_TABLE default\n";
-  for ( int z = 1; z <= sizeZ; ++z ) {
-    for ( int y = 1; y <= sizeY; ++y ) {
-      for ( int x = 1; x <= sizeX; ++x ) {
-        // evil hack because vtk requires binary data to be in big endian
-        uint32_t dump = htobe32( *reinterpret_cast<uint32_t *>( &flag_( x, y, z ) ) );
-        vtkFile.write( reinterpret_cast<char *>( &dump ), sizeof(int) );
-      }
-    }
-  }
-
-  // Write density field
-  vtkFile << "SCALARS density float\n";
-  vtkFile << "LOOKUP_TABLE default\n";
-  for ( int z = 1; z <= sizeZ; ++z ) {
-    for ( int y = 1; y <= sizeY; ++y ) {
-      for ( int x = 1; x <= sizeX; ++x ) {
-        // evil hack because vtk requires binary data to be in big endian
-        uint32_t dump = htobe32( *reinterpret_cast<uint32_t *>( &rho_( x, y, z ) ) );
-        vtkFile.write( reinterpret_cast<char *>( &dump ), sizeof(float) );
-      }
-    }
-  }
-
-  // Write velocity vector field
-  vtkFile << "VECTORS velocity float\n";
-  for ( int z = 1; z <= sizeZ; ++z ) {
-    for ( int y = 1; y <= sizeY; ++y ) {
-      for ( int x = 1; x <= sizeX; ++x ) {
-        // evil hack because vtk requires binary data to be in big endian
-        uint32_t dump0 = htobe32( *reinterpret_cast<uint32_t *>( &u_( x, y, z, 0 ) ) );
-        uint32_t dump1 = htobe32( *reinterpret_cast<uint32_t *>( &u_( x, y, z, 1 ) ) );
-        uint32_t dump2 = htobe32( *reinterpret_cast<uint32_t *>( &u_( x, y, z, 2 ) ) );
-        vtkFile.write( reinterpret_cast<char *>( &dump0 ), sizeof(float) );
-        vtkFile.write( reinterpret_cast<char *>( &dump1 ), sizeof(float) );
-        vtkFile.write( reinterpret_cast<char *>( &dump2 ), sizeof(float) );
-      }
-    }
-  }
-
-}
 
 } // namespace lbm
 

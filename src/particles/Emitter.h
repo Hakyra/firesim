@@ -45,8 +45,8 @@ public:
   //! \param[in] lifetimeCoeff   Coefficient to determine particle lifetime
   //!                            based on emitters current fuel value
 
-  Emitter ( core::vector3df pos,
-            core::vector3df size,
+  Emitter ( vec3 pos,
+            vec3 size,
             float temp,
             int fuel,
             int emitThreshold,
@@ -71,9 +71,9 @@ protected:
 
   //! Position of the emitter (x,y,z)
 
-  core::vector3df pos_;
+    vec3 pos_;
 
-  core::vector3df size_;
+    vec3 size_;
 
   //! Initial temperature of emitted particles
 

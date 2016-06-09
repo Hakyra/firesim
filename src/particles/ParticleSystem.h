@@ -9,12 +9,11 @@
 #define RealType float
 #endif
 
-#include <irrlicht/irrlicht.h>
+#include <SDL2/SDL.h>
 
 #include "../lbm/LBM.h"
 #include "Emitter.h"
-
-using namespace irr;
+#include <glm/glm.hpp>
 
 //! Common namespace for all classes related to the particle system
 
@@ -28,32 +27,26 @@ struct Sphere {
           float radius,
           float u_x = 0.0,
           float u_y = 0.0,
-          float u_z = 0.0,
-          scene::IMeshSceneNode* n = 0 ) :
-      pos( x, y, z ), r( radius ), u( u_x, u_y, u_z ), node( n ) {}
+          float u_z = 0.0) :
+      pos( x, y, z ), r( radius ), u( u_x, u_y, u_z ) {}
 
   void move() {
     pos += u;
-    if ( node )
-      node->setPosition( pos );
   }
 
-  bool isPointInside( const core::vector3df& p ) {
-    return   (p.X - pos.X) * (p.X - pos.X)
-           + (p.Y - pos.Y) * (p.Y - pos.Y)
-           + (p.Z - pos.Z) * (p.Z - pos.Z) < r * r;
+  bool isPointInside( const vec3& p ) {
+    return   (p.x - pos.x) * (p.x - pos.x)
+           + (p.y - pos.y) * (p.y - pos.y)
+           + (p.z - pos.z) * (p.z - pos.z) < r * r;
   }
 
-  core::vector3df pos;
+    vec3 pos;
   float r;
-  core::vector3df u;
-  scene::IMeshSceneNode* node;
+    vec3 u;
 };
 
 //! Particle system that handles creation, movement and visualization of
 //! particles.
-
-//! Irrlicht 3D engine is used for OpenGL visualization.
 
 class ParticleSystem {
 
@@ -92,7 +85,20 @@ public:
 
   void run();
 
+
+    void InitSDL();
+
+    void Draw();
+
+    void CloseSDL();
+
+
 protected:
+
+
+    SDL_Window* fenetre;
+    SDL_GLContext contexteOpenGL;
+
 
   // ========================= //
   // Internal helper functions //
@@ -158,7 +164,7 @@ protected:
   float k_;
 
   //! Vector of inversed gravity
-  core::vector3df gravity_;
+  vec3 gravity_;
 
   //! Basic particle size
   float sizeBase_;
@@ -172,31 +178,12 @@ protected:
   //! Table of a precomputed Gaussian distribution
   std::vector<float> gaussTable_;
 
-  //! Black body color table
-  std::vector< video::SColor > bbColorTable_;
-
-  //! Irrlicht OpenGL device
-  IrrlichtDevice* device_;
-
-  //! Irrlicht scene manager
-  scene::ISceneManager* smgr_;
-
-  //! Irrlicht OpenGL video driver
-  video::IVideoDriver* drvr_;
-
-  //! Vector of particle textures
-  std::vector< video::ITexture* > textures_;
-
-  //! Vector of axis-aligned cuboid obstacles
-  std::vector< core::aabbox3df > obstacles_;
-
   std::vector< Sphere > spheres_;
 
   std::string updFileName_;
-  std::string irrFileName_;
 
-  std::string screenshots_;
-  int screenStep_;
+    vec3 minPart;
+    vec3 maxPart;
 
   bool dynamicLights_;
 };

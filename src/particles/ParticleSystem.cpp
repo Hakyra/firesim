@@ -2,9 +2,11 @@
 //! \date   Mar 12, 2009
 //! \author Florian Rathgeber
 
+#include <GL/glew.h>
 #include "../confparser/ConfParser.h"
 #include "ParticleSystem.h"
 #include "../lbm/LBM_def.h"
+
 
 namespace particles {
 
@@ -12,10 +14,7 @@ ParticleSystem::ParticleSystem ( std::string configFileName )
     : numParticles_( 0 ),
       sizeBase_( 0. ),
       sizeVar_( 0. ),
-      numSprites_( 0 ),
-      device_( 0 ),
-      smgr_( 0 ),
-      drvr_( 0 ) {
+      numSprites_( 0 ){
   try {
 
     ConfParser p;
@@ -34,6 +33,9 @@ ParticleSystem::ParticleSystem ( std::string configFileName )
     std::cerr << e << std::endl;
     exit( -1 );
   }
+
+    minPart = vec3(-FLT_MAX,-FLT_MAX,-FLT_MAX);
+    maxPart = vec3(FLT_MAX,FLT_MAX,FLT_MAX);
 }
 
 void ParticleSystem::setup( ConfBlock& base ) {
@@ -63,7 +65,7 @@ void ParticleSystem::setup( ConfBlock& base ) {
     float g_x = paramBlock->getParam<float>( "g_x" );
     float g_y = paramBlock->getParam<float>( "g_y" );
     float g_z = paramBlock->getParam<float>( "g_z" );
-    gravity_ = core::vector3df( g_x, g_y, g_z );
+    gravity_ = vec3( g_x, g_y, g_z );
     smokeTemp_ = paramBlock->getParam<float>( "smokeTemp" );
     ambTemp_ = paramBlock->getParam<float>( "ambTemp" );
     maxSteps_ = paramBlock->getParam<int>( "maxSteps" );
@@ -77,9 +79,9 @@ void ParticleSystem::setup( ConfBlock& base ) {
     std::cout << "Number of steps                    : " << maxSteps_ << std::endl;
 
     // Precompute Gauss function for thermal diffusion
-    int maxElem = sqrt( sizeX_ * sizeX_ + sizeY_ * sizeY_ + sizeZ_ * sizeZ_ );
+    int maxElem = glm::sqrt( float(sizeX_ * sizeX_ + sizeY_ * sizeY_ + sizeZ_ * sizeZ_) );
     gaussTable_.reserve( maxElem );
-    float a = 1. / sqrt( 2. * M_PI );
+    float a = 1. / glm::sqrt( 2. * M_PI );
     for ( int i = 0; i < maxElem; ++i ) {
       gaussTable_.push_back( a * exp(-  i * i / 2. ) );
     }
@@ -124,8 +126,8 @@ void ParticleSystem::setup( ConfBlock& base ) {
       std::cout << "fuelConsumption : " << fuelConsumption << std::endl;
       std::cout << "lifetimeCoeff : " << lifetimeCoeff << std::endl;
 
-      emitters_.push_back( Emitter( core::vector3df( xStart, yStart, zStart ),
-                                    core::vector3df( xEnd - xStart,
+      emitters_.push_back( Emitter( vec3( xStart, yStart, zStart ),
+                                    vec3( xEnd - xStart,
                                                      yEnd - yStart,
                                                      zEnd - zStart ),
                                     temp,
@@ -134,270 +136,6 @@ void ParticleSystem::setup( ConfBlock& base ) {
                                     fuelConsumption,
                                     lifetimeCoeff ) );
 
-    }
-
-    // Set up irrlicht engine
-    paramBlock = base.find( "irrlicht" );
-    if ( paramBlock == NULL ) {
-      std::cout << "No irrlicht configuration specified in configuration file. No real-time visualization will be done." << std::endl;
-    } else {
-      std::cout << "Set up irrlicht configuration..." << std::endl;
-
-      // Read basic visualization parameters
-      sizeBase_ = paramBlock->getParam<float>( "sizeBase" );
-      sizeVar_ = paramBlock->getParam<float>( "sizeVar" );
-      numSprites_ = paramBlock->getParam<int>( "numSprites" );
-      int xRes = paramBlock->getParam<int>( "xRes" );
-      int yRes = paramBlock->getParam<int>( "yRes" );
-      dynamicLights_ = paramBlock->getParam<bool>( "dynamicLights" );
-      std::string camera = paramBlock->getParam<std::string>( "camera" );
-      // Optionally write particle update times to file
-      paramBlock->getParam<std::string>( "irrlichtTimeChart", irrFileName_ );
-      paramBlock->getParam<std::string>( "screenshots", screenshots_ );
-      paramBlock->getParam<int>( "screenStep", screenStep_ );
-
-      // Create OpenGL device
-      device_ = createDevice( video::EDT_OPENGL, core::dimension2du(xRes,yRes), 24 );
-      if (!device_) throw "Could not create OpenGL device.";
-      smgr_ = device_->getSceneManager();
-      drvr_ = device_->getVideoDriver();
-      assert( smgr_ && drvr_ );
-
-      // Optionally set ambient light
-      int ambLight;
-      if ( paramBlock->getParam<int>( "ambLight", ambLight ) )
-        smgr_->setAmbientLight( video::SColor(255,ambLight,ambLight,ambLight) );
-
-      // Add camera to scene
-      if ( camera == "animated" ) {
-        scene::ICameraSceneNode* cam =
-            smgr_->addCameraSceneNode( 0,
-                                 core::vector3df( sizeX_/2, sizeY_/2, -sizeZ_/2 ),
-                                     core::vector3df( sizeX_/2, sizeY_/2, 0 ) );
-        cam->addAnimator( smgr_->createFlyCircleAnimator(
-                          core::vector3df( sizeX_/2, sizeY_/2, sizeZ_/2 ), // center
-                          sizeZ_, // radius
-                          0.0002f, // speed
-                          core::vector3df(0.f, 1.f, 0.f) // direction
-                                                        ) );
-      } else if ( camera == "fps" ) {
-        scene::ICameraSceneNode* cam =
-            smgr_->addCameraSceneNodeFPS( 0, 100.0f, .1f );
-        cam->setPosition(core::vector3df( sizeX_/2, sizeY_/2, -sizeZ_/2 ));
-      } else {
-        smgr_->addCameraSceneNode( 0,
-                                   core::vector3df( sizeX_/2, sizeY_/2, -sizeZ_/2 ),
-                                       core::vector3df( sizeX_/2, sizeY_/2, 0 ) );
-      }
-
-      cip = paramBlock->findAll( "texture" );
-
-      for ( ConfBlock::childIter it = cip.first; it != cip.second; ++it ) {
-
-        ConfBlock b = it->second;
-
-        std::string file = b.getParam<std::string>( "file" );
-        textures_.push_back( drvr_->getTexture( file.c_str() ) );
-      }
-
-      cip = paramBlock->findAll( "plane" );
-
-      for ( ConfBlock::childIter it = cip.first; it != cip.second; ++it ) {
-
-        ConfBlock b = it->second;
-
-        std::string name = b.getParam<std::string>( "name" );
-        std::string texture;
-        b.getParam<std::string>( "texture", texture );
-        bool lighting = dynamicLights_;
-        b.getParam<bool>( "lighting", lighting );
-        float sizeTile = b.getParam<float>( "sizeTile" );
-        int numTile = b.getParam<int>( "numTile" );
-        float xCenter = b.getParam<float>( "xCenter" );
-        float yCenter = b.getParam<float>( "yCenter" );
-        float zCenter = b.getParam<float>( "zCenter" );
-        float xRot = 0., yRot = 0., zRot = 0.;
-        b.getParam<float>( "xRot", xRot );
-        b.getParam<float>( "yRot", yRot );
-        b.getParam<float>( "zRot", zRot );
-
-        // Create a terrain scenenode
-        scene::IAnimatedMesh *terrain_model =
-          smgr_->addHillPlaneMesh( name.c_str(), // Name of the scenenode
-                                   core::dimension2d<f32>( sizeTile, sizeTile ), // Tile size
-                                   core::dimension2d<u32>(numTile, numTile), // Tile count
-                                   0, // Material
-                                   0.0f, // Hill height
-                                   core::dimension2d<f32>(0.0f, 0.0f), // countHills
-                                   core::dimension2d<f32>(numTile, numTile)); // textureRepeatCount
-
-        scene::IAnimatedMeshSceneNode* terrain_node =
-          smgr_->addAnimatedMeshSceneNode( terrain_model,
-                                           0,
-                                           -1,
-                                           core::vector3df(xCenter,yCenter,zCenter),
-                                           core::vector3df(xRot,yRot,zRot));
-        if ( texture.length() ) terrain_node->setMaterialTexture(0, drvr_->getTexture( texture.c_str() ));
-        terrain_node->setMaterialFlag(video::EMF_LIGHTING, lighting);
-      }
-
-      cip = paramBlock->findAll( "mesh" );
-
-      for ( ConfBlock::childIter it = cip.first; it != cip.second; ++it ) {
-
-        ConfBlock b = it->second;
-
-        std::string file = b.getParam<std::string>( "file" );
-        std::string texture0, texture1;
-        b.getParam<std::string>( "texture0", texture0 );
-        b.getParam<std::string>( "texture1", texture1 );
-        bool lighting = dynamicLights_;
-        b.getParam<bool>( "lighting", lighting );
-        float xCenter = b.getParam<float>( "xCenter" );
-        float yCenter = b.getParam<float>( "yCenter" );
-        float zCenter = b.getParam<float>( "zCenter" );
-        float scale = b.getParam<float>( "scale" );
-
-        scene::IAnimatedMesh* mesh = smgr_->getMesh( file.c_str() );
-
-        if (mesh) {
-          scene::ISceneNode* node = smgr_->addMeshSceneNode(mesh->getMesh(0));
-          if (node) {
-            node->setPosition(core::vector3df(xCenter,yCenter,zCenter));
-            if ( texture0.length() ) node->setMaterialTexture(0, drvr_->getTexture( texture0.c_str() ));
-            if ( texture1.length() ) node->setMaterialTexture(1, drvr_->getTexture( texture1.c_str() ));
-            node->setMaterialFlag(video::EMF_LIGHTING, lighting);
-            node->setScale( core::vector3df( scale, scale, scale ) );
-          }
-        }
-      }
-
-      // Generate black body color table
-      std::cout << "Generate black body color table..." << std::endl;
-      generateBlackBodyColorTable( 2. * maxTemp );
-
-    }
-
-    // Set up bounding boxes of obstacles
-    paramBlock = base.find( "obstacles" );
-    if ( paramBlock == NULL ) {
-      std::cout << "No obstacles defined." << std::endl;
-    } else {
-
-      std::cout << "Set up the obstacles..." << std::endl;
-
-      ConfBlock::childIterPair bit = paramBlock->findAll( "cuboid_stationary" );
-      for ( ConfBlock::childIter it = bit.first; it != bit.second; ++it ) {
-
-        ConfBlock& b = it->second;
-
-        bool visible = b.getParam<bool>( "visible" );
-        int xStart = b.getParam<int>( "xStart" );
-        int xEnd   = b.getParam<int>( "xEnd" ) + 1;
-        int yStart = b.getParam<int>( "yStart" );
-        int yEnd   = b.getParam<int>( "yEnd" ) + 1;
-        int zStart = b.getParam<int>( "zStart" );
-        int zEnd   = b.getParam<int>( "zEnd" ) + 1;
-        int dx = xEnd - xStart;
-        int dy = yEnd - yStart;
-        int dz = zEnd - zStart;
-
-        std::cout << "Stationary cuboid ranging from <" << xStart << ",";
-        std::cout << yStart << "," << zStart << "> to <" << xEnd << "," << yEnd;
-        std::cout << "," << zEnd << ">" << std::endl;
-
-        if ( visible && device_ ) {
-          std::string texture;
-          b.getParam<std::string>( "texture", texture );
-          bool lighting = dynamicLights_;
-          b.getParam<bool>( "lighting", lighting );
-          scene::IMeshSceneNode* mesh = smgr_->addCubeSceneNode ( 1.0f, // size
-                                    0, // parent
-                                    -1, // id
-                                    core::vector3df( xStart + 0.5 * dx,
-                                                     yStart + 0.5 * dy,
-                                                     zStart + 0.5 * dz ), // position
-                                    core::vector3df( 0, 0, 0 ), // rotation
-                                    core::vector3df( dx, dy, dz ) // scale
-                                  );
-          mesh->setMaterialFlag( video::EMF_LIGHTING, lighting );
-          if ( texture.length() ) mesh->setMaterialTexture( 0, drvr_->getTexture( texture.c_str() ) );
-        }
-        obstacles_.push_back(
-            core::aabbox3df( xStart, yStart, zStart, xEnd, yEnd, zEnd ) );
-      }
-
-      bit = paramBlock->findAll( "sphere_stationary" );
-      for ( ConfBlock::childIter it = bit.first; it != bit.second; ++it ) {
-
-        ConfBlock& bl = it->second;
-
-        bool visible = bl.getParam<bool>( "visible" );
-        float xCenter = bl.getParam<float>( "xCenter" );
-        float yCenter = bl.getParam<float>( "yCenter" );
-        float zCenter = bl.getParam<float>( "zCenter" );
-        float radius  = bl.getParam<float>( "radius" );
-
-        std::cout << "Stationary sphere centered at <" << xCenter << ",";
-        std::cout << yCenter << "," << zCenter << "> with radius " << radius;
-        std::cout << std::endl;
-
-        // Add scene nodes for moving sphere
-        if ( visible && device_ ) {
-          std::string texture;
-          bl.getParam<std::string>( "texture", texture );
-          bool lighting = dynamicLights_;
-          bl.getParam<bool>( "lighting", lighting );
-          scene::IMeshSceneNode* mesh = smgr_->addSphereSceneNode( radius,
-              128,
-              0,
-              -1,
-              core::vector3df( xCenter, yCenter, zCenter ) );
-          mesh->setMaterialFlag( video::EMF_LIGHTING, lighting );
-          if ( texture.length() ) mesh->setMaterialTexture( 0, drvr_->getTexture( texture.c_str() ) );
-          spheres_.push_back( Sphere( xCenter, yCenter, zCenter, radius, 0.0, 0.0, 0.0, mesh ) );
-        } else {
-          spheres_.push_back( Sphere( xCenter, yCenter, zCenter, radius ) );
-        }
-      }
-
-      bit = paramBlock->findAll( "sphere_moving" );
-      for ( ConfBlock::childIter it = bit.first; it != bit.second; ++it ) {
-
-        ConfBlock& bl = it->second;
-
-        bool visible = bl.getParam<bool>( "visible" );
-        float xCenter = bl.getParam<float>( "xCenter" );
-        float yCenter = bl.getParam<float>( "yCenter" );
-        float zCenter = bl.getParam<float>( "zCenter" );
-        float radius  = bl.getParam<float>( "radius" );
-        float u_x  = bl.getParam<float>( "u_x" );
-        float u_y  = bl.getParam<float>( "u_y" );
-        float u_z  = bl.getParam<float>( "u_z" );
-
-        std::cout << "Moving sphere centered at <" << xCenter << ",";
-        std::cout << yCenter << "," << zCenter << "> with radius " << radius;
-        std::cout << " and u=<" << u_x << "," << u_y << "," << u_z << ">";
-        std::cout << std::endl;
-
-        // Add scene nodes for moving sphere
-        if ( visible && device_ ) {
-          std::string texture;
-          bl.getParam<std::string>( "texture", texture );
-          bool lighting = dynamicLights_;
-          bl.getParam<bool>( "lighting", lighting );
-          scene::IMeshSceneNode* mesh = smgr_->addSphereSceneNode( radius,
-              128,
-              0,
-              -1,
-              core::vector3df( xCenter, yCenter, zCenter ) );
-          mesh->setMaterialFlag( video::EMF_LIGHTING, lighting );
-          if ( texture.length() ) mesh->setMaterialTexture( 0, drvr_->getTexture( texture.c_str() ) );
-          spheres_.push_back( Sphere( xCenter, yCenter, zCenter, radius, u_x, u_y, u_z, mesh ) );
-        } else {
-          spheres_.push_back( Sphere( xCenter, yCenter, zCenter, radius, u_x, u_y, u_z ) );
-        }
-      }
     }
 
   } catch ( std::exception& e ) {
@@ -411,103 +149,171 @@ void ParticleSystem::setup( ConfBlock& base ) {
   std::cout << "ParticleSystem setup finished!" << std::endl;
 }
 
+    void ParticleSystem::InitSDL()
+    {
+        if(SDL_Init(SDL_INIT_VIDEO) < 0)
+        {
+            std::cout << "Erreur lors de l'initialisation de la SDL : " << SDL_GetError() << std::endl;
+            SDL_Quit();
+
+        }
+
+
+        // Version d'OpenGL
+
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+
+
+        // Double Buffer
+
+        SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+        SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+
+
+        // Création de la fenêtre
+
+        fenetre = SDL_CreateWindow("Test SDL 2.0", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_SHOWN | SDL_WINDOW_OPENGL);
+
+        if(fenetre == 0)
+        {
+            std::cout << "Erreur lors de la creation de la fenetre : " << SDL_GetError() << std::endl;
+            SDL_Quit();
+        }
+
+
+        // Création du contexte OpenGL
+
+        contexteOpenGL = SDL_GL_CreateContext(fenetre);
+
+        if(contexteOpenGL == 0)
+        {
+            std::cout << SDL_GetError() << std::endl;
+            SDL_DestroyWindow(fenetre);
+            SDL_Quit();
+        }
+
+        GLenum initialisationGLEW( glewInit() );
+
+        // Si l'initialisation a échouée :
+
+        if(initialisationGLEW != GLEW_OK)
+        {
+            // On affiche l'erreur grâce à la fonction : glewGetErrorString(GLenum code)
+
+            std::cout << "Erreur d'initialisation de GLEW : " << glewGetErrorString(initialisationGLEW) << std::endl;
+
+
+            // On quitte la SDL
+
+            SDL_GL_DeleteContext(contexteOpenGL);
+            SDL_DestroyWindow(fenetre);
+            SDL_Quit();
+        }
+
+        /* Enable smooth shading */
+        glShadeModel( GL_SMOOTH );
+
+        /* Set the background black */
+        glClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
+
+        /* Depth buffer setup */
+        glClearDepth( 1.0f );
+
+        /* Enables Depth Testing */
+        glEnable( GL_DEPTH_TEST );
+
+        /* The Type Of Depth Test To Do */
+        glDepthFunc( GL_LEQUAL );
+
+        /* Really Nice Perspective Calculations */
+        glHint( GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST );
+
+        GLfloat ratio;
+
+        int width = 800;
+        int height = 600;
+
+        /* Protect against a divide by zero */
+        if ( height == 0 ) {
+            height = 1;
+        }
+
+        ratio = ( GLfloat )width / ( GLfloat )height;
+
+        /* Setup our viewport. */
+        glViewport( 0, 0, ( GLsizei )width, ( GLsizei )height );
+
+        /* change to the projection matrix and set our viewing volume. */
+        glMatrixMode( GL_PROJECTION );
+        glLoadIdentity( );
+
+        /* Set our perspective */
+        gluPerspective( 45.0f, ratio, 0.1f, 100.0f );
+
+        /* Make sure we're chaning the model view and not the projection */
+        glMatrixMode( GL_MODELVIEW );
+
+        /* Reset The View */
+        glLoadIdentity( );
+    }
+
+    void ParticleSystem::CloseSDL()
+    {
+        SDL_GL_DeleteContext(contexteOpenGL);
+        SDL_DestroyWindow(fenetre);
+        SDL_Quit();
+    }
+
+    void ParticleSystem::Draw()
+    {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            if(event.type == SDL_QUIT)
+                exit(0);
+        }
+
+        glClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
+        /* Clear The Screen And The Depth Buffer */
+        glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+
+        /* Move Left 1.5 Units And Into The Screen 6.0 */
+        glLoadIdentity();
+
+        gluLookAt(10,5,10,0,0,0,0,1,0);
+
+        glPointSize(5);
+
+        std::vector< Emitter >::iterator ite;
+        std::list< Particle >::iterator itp;
+
+
+        glBegin(GL_POINTS);
+        glColor3f(1.0,1.0,1.0);
+        for ( ite = emitters_.begin(); ite != emitters_.end(); ++ite ) {
+            // Precompute modificator for particle size
+
+            for (itp = (*ite).particles_.begin(); itp != (*ite).particles_.end(); ++itp) {
+                Particle temp = (*itp);
+                glVertex3f(temp.pos_.x,temp.pos_.y,temp.pos_.z);
+                //std::cout << temp.pos_.x<< " " << temp.pos_.y << " " << temp.pos_.z << std::endl;
+            }
+        }
+        glEnd();
+
+        SDL_GL_SwapWindow(fenetre);
+
+    }
+
 void ParticleSystem::run() {
 
   // Discard first 20 steps to initialize velocity field
   for ( int i = 0; i < 20; ++i ) solver_.runStep();
   int step = 20;
 
-  // Main loop with real-time visualization enabled
-  if ( device_ ) {
+    InitSDL();
 
-    float totTime = 0., eTimeTot = 0., iTimeTot = 0., sTimeTot = 0., uTimeTot = 0.;
-    std::ofstream updFile, irrFile;
-    if ( updFileName_.length() ) {
-      updFile.open( updFileName_.c_str(), std::ios::out );
-      updFile << "\"Number of Particles\" \"Step time\" \"Emission time\" \"LBM step time\" \"Update time\"\n";
-    }
-    if ( irrFileName_.length() ) {
-      irrFile.open( irrFileName_.c_str(), std::ios::out );
-      irrFile << "\"Number of Particles\" \"Sprites per particle\" \"Step time\" \"Emission time\" \"Rendering time\" \"LBM step time\" \"Update time\" \"FPS\"\n";
-    }
-
-    // Start the simulation loop
-    while ( device_->run() ) {
-
-      struct timeval start, end;
-      float stepTime = 0.;
-
-      gettimeofday(&start, NULL);
-
-      // emit particles
-      emitParticles();
-
-      gettimeofday(&end, NULL);
-      float eTime = getTime( start, end );
-
-      // Draw all primitives
-      drvr_->beginScene(true, true, video::SColor(255,0,0,0));
-      smgr_->drawAll();
-      drvr_->endScene();
-
-      gettimeofday(&start, NULL);
-      float iTime = getTime( end, start );
-
-      // Update the window caption
-      core::stringw str = L"LBM fire simulation [";
-      str += drvr_->getName();
-      str += "L], FPS: ";
-      str += (s32)drvr_->getFPS();
-      str += L", Particles: ";
-      str += numParticles_;
-      str += L", Time step: ";
-      str += step;
-      str += L" / ";
-      str += maxSteps_;
-      device_->setWindowCaption( str.c_str() );
-
-      if ( screenStep_ > 0 && screenshots_.length() && step % screenStep_ == 0 ) {
-        std::ostringstream oss;
-        oss << screenshots_ << "." << std::setw(4) << std::setfill('0') << step << ".jpg";
-        drvr_->writeImageToFile( drvr_->createScreenShot(), oss.str().c_str(), 85 );
-      }
-
-      // Simulate one LBM step
-      float sTime = solver_.runStep();
-
-      gettimeofday(&start, NULL);
-
-      // Update the particles
-      updateParticles();
-
-      gettimeofday(&end, NULL);
-      float uTime = getTime( start, end );
-
-      stepTime = eTime + iTime + sTime + uTime;
-      totTime += stepTime;
-      eTimeTot += eTime;
-      iTimeTot += iTime;
-      sTimeTot += sTime;
-      uTimeTot += uTime;
-
-      std::cout << step << " / " << maxSteps_ << ": ";
-      std::cout << eTime << " + " << iTime << " + " << sTime << " + " << uTime;
-      std::cout << " = " << stepTime << "s, particles: " << numParticles_;
-      std::cout << std::endl;
-
-      if ( updFileName_.length() )
-        updFile << numParticles_ << " " << stepTime << " " << eTime << " " << sTime << " " << uTime << "\n";
-      if ( irrFileName_.length() )
-        irrFile << numParticles_ << " " << numSprites_ << " " << stepTime << " " << eTime << " " << iTime << " " << sTime << " " << uTime << " " << drvr_->getFPS() << "\n";
-
-      // Check for end of simulation
-      if ( ++step >= maxSteps_ ) break;
-    }
-
-    if ( updFileName_.length() ) updFile.close();
-    if ( irrFileName_.length() ) irrFile.close();
-
-  } else {
+  {
 
     float totTime = 0.;
     std::ofstream updFile;
@@ -547,12 +353,20 @@ void ParticleSystem::run() {
       std::cout << stepTime << "secs with " << numParticles_ << " particles";
       std::cout << std::endl;
 
+
+        Draw();
+
+
       if ( updFileName_.length() )
         updFile << numParticles_ << " " << stepTime << " " << eTime << " " << sTime << " " << uTime << "\n";
     }
 
     if ( updFileName_.length() ) updFile.close();
   }
+
+    CloseSDL();
+    std::cout << "Particule min : " << minPart.x << " " << minPart.y << " " << minPart.z << std::endl;
+    std::cout << "Particule max : " << maxPart.x << " " << maxPart.y << " " << maxPart.z << std::endl;
 }
 
 inline void ParticleSystem::updateParticles() {
@@ -565,50 +379,39 @@ inline void ParticleSystem::updateParticles() {
     float szCoeff = 1. / ( (*ite).fuel_ * (*ite).lifetimeCoeff_ );
     for ( itp = (*ite).particles_.begin(); itp != (*ite).particles_.end(); ++itp) {
 
+        std::cout << "Begin ";
+        std::cout << (*itp).pos_.x<< " " << (*itp).pos_.y << " " << (*itp).pos_.z << " Velo " ;
+
       // Remove particles that have left the domain or exceeded their lifetime
       while ( itp != (*ite).particles_.end() && ( (*itp).lifetime_ < 1 ||
-              (*itp).getPos().X < 1 || (*itp).getPos().X > sizeX_ - 1 ||
-              (*itp).getPos().Y < 1 || (*itp).getPos().Y > sizeY_ - 1 ||
-              (*itp).getPos().Z < 1 || (*itp).getPos().Z > sizeZ_ -1  ||
+              (*itp).getPos().x < 1 || (*itp).getPos().x > sizeX_ - 1 ||
+              (*itp).getPos().y < 1 || (*itp).getPos().y > sizeY_ - 1 ||
+              (*itp).getPos().z < 1 || (*itp).getPos().z > sizeZ_ -1  ||
               (*itp).temp_ < ambTemp_ ) ) {
 //         std::cout << "Particle at pos <" << (*itp).getPos().X << "," << (*itp).getPos().Y << "," << (*itp).getPos().Z <<"> with lifetime " << (*itp).lifetime_ << " removed." << std::endl;
-        (*itp).clear();
+
         itp = (*ite).particles_.erase( itp );
         numParticles_--;
+
+          std::cout << " test ";
       }
 
       // If no particles are left anymore, go to next emitter
       if ( itp == (*ite).particles_.end() ) break;
 
       // Move particle according to fluid velocity at current position
-      Vec3<float> vel = solver_.getVelocity( (*itp).pos_.X, (*itp).pos_.Y, (*itp).pos_.Z );
-      core::vector3df v = core::vector3df( vel[0], vel[1], vel[2] );
+      Vec3<float> vel = solver_.getVelocity( (*itp).pos_.x, (*itp).pos_.y, (*itp).pos_.z );
+      vec3 v = vec3( vel[0], vel[1], vel[2] );
+
+
       // Buoyancy force
-      core::vector3df g =  gravity_ * k_ * ( (*itp).temp_ - ambTemp_ );
+      vec3 g = -gravity_ * k_ * ( (*itp).temp_ - ambTemp_ );
       // Check whether the buoyancy force would carry the particle into an
       // obstacle
-      bool inObstacle = false;
-      core::vector3df u = (*itp).pos_ + g + v;
-      for ( uint i = 0; i < obstacles_.size(); ++i )
-        if( obstacles_[i].isPointInside( u ) ) {
-//          std::cout << "Point <" << u.X << "," << u.Y << "," << u.Z << "> inside obstacle " << i << std::endl;
-          inObstacle = true;
-          break;
-        }
-      for ( uint i = 0; i < spheres_.size(); ++i )
-        if( spheres_[i].isPointInside( u ) ) {
-//          std::cout << "Point <" << u.X << "," << u.Y << "," << u.Z << "> inside obstacle " << i << std::endl;
-          inObstacle = true;
-          break;
-        }
-      // If not, apply it
-      if ( !inObstacle ) (*itp).updatePos( v + g );
-      // If yes, only move it by the fluid velocity
-      else (*itp).updatePos( v );
 
-      // Update lifetime and particle size
-      float sz = sizeBase_ + sizeVar_ * (*itp).lifetime_ * szCoeff;
-      (*itp).setSize( sz );
+        std::cout << g.x<< " " << g.y << " " << g.z << " Velo " ;
+
+      (*itp).updatePos( v + g );
 
       // Update temperature
       float tempExt = - gaussTable_[0] * (*itp).temp_;
@@ -625,19 +428,21 @@ inline void ParticleSystem::updateParticles() {
         // If temperature has fallen below threshold, convert to smoke particle
         if ( (*itp).temp_ < smokeTemp_ ) {
           (*itp).setSmoke( szCoeff );
-        } else if ( device_ ) {
-          assert( (uint) (((*itp).temp_ - smokeTemp_) / 50.) < bbColorTable_.size() );
-          (*itp).setColor( bbColorTable_[ (int) (((*itp).temp_ - smokeTemp_) / 50.) ] );
         }
 
-      } else if ( device_ ){
-        (*itp).setColor( video::SColor( 255 * (*itp).lifetime_ * szCoeff,
-                                        255 * (*itp).lifetime_ * szCoeff,
-                                        255 * (*itp).lifetime_ * szCoeff,
-                                        255 * (*itp).lifetime_ * szCoeff) );
       }
 
       (*itp).lifetime_--;
+
+        minPart.x = glm::min(minPart.x,(*itp).pos_.x);
+        minPart.y = glm::min(minPart.y,(*itp).pos_.y);
+        minPart.z = glm::min(minPart.z,(*itp).pos_.z);
+
+        maxPart.x = glm::max(maxPart.x,(*itp).pos_.x);
+        maxPart.y = glm::max(maxPart.y,(*itp).pos_.y);
+        maxPart.z = glm::max(maxPart.z,(*itp).pos_.z);
+
+        std::cout << (*itp).pos_.x<< " " << (*itp).pos_.y << " " << (*itp).pos_.z << " end " << std::endl;
     }
   }
 
@@ -654,28 +459,14 @@ inline void ParticleSystem::emitParticles() {
   for ( ite = emitters_.begin(); ite != emitters_.end(); ++ite ) {
     // Emit random number of particles up to emit threshold
     for ( int i = 0; i < (*ite).emitThreshold_; ++i ) {
-      core::vector3df pos = (*ite).pos_ + core::vector3df(
-          ( std::rand() * (*ite).size_.X ) / (float) RAND_MAX,
-          ( std::rand() * (*ite).size_.Y ) / (float) RAND_MAX,
-          ( std::rand() * (*ite).size_.Z ) / (float) RAND_MAX
+      vec3 pos = (*ite).pos_ + vec3(
+          ( std::rand() * (*ite).size_.x ) / (float) RAND_MAX,
+          ( std::rand() * (*ite).size_.y ) / (float) RAND_MAX,
+          ( std::rand() * (*ite).size_.z ) / (float) RAND_MAX
                                                          );
-      // If OpenGL output is enabled, also create billboards
-      if ( device_ )
-        (*ite).particles_.push_back(
-            Particle(
-                      smgr_,
-                      numParticles_,
-                      pos,
-                      textures_,
-                      numSprites_,
-                      (*ite).temp_,
-                      bbColorTable_[ (int) (((*ite).temp_ - smokeTemp_) / 50.) ],
-                      sizeBase_ + sizeVar_,
-                      (int) ((*ite).fuel_ * (*ite).lifetimeCoeff_ ),
-                      dynamicLights_
-                    )              );
-      // Else create only particles without visual representation
-      else
+
+
+
         (*ite).particles_.push_back(
             Particle( pos, (*ite).temp_, (int) ((*ite).fuel_ * (*ite).lifetimeCoeff_ ) ) );
       // Reduce emitter's fuel
@@ -790,11 +581,10 @@ void ParticleSystem::generateBlackBodyColorTable( float maxTemp ) {
     g *= 255. / max;
     b *= 255. / max;
 
-    bbColorTable_.push_back( video::SColor( 25, r, g, b ) );
     std::cout << "Temperature " << t << "K: RGB <" << r << ", " << g << ", " << b << ">" << std::endl;
   }
   std::cout << "Generated black body color table from " << smokeTemp_;
-  std::cout << "K to " << maxTemp << "K (" << bbColorTable_.size() << " values)" << std::endl;
+  std::cout << "K to " << maxTemp << "K (" <<  " values)" << std::endl;
 }
 
 } // namespace particles
